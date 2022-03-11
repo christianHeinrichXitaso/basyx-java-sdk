@@ -9,8 +9,11 @@
  ******************************************************************************/
 package org.eclipse.basyx.aas.aggregator.restapi;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 
+import javassist.bytecode.ByteArray;
 import org.eclipse.basyx.aas.aggregator.api.IAASAggregator;
 import org.eclipse.basyx.aas.metamodel.api.IAssetAdministrationShell;
 import org.eclipse.basyx.aas.metamodel.map.AssetAdministrationShell;
@@ -101,11 +104,11 @@ public class AASAggregatorProvider implements IModelProvider {
 		} else {
 			String[] splitted = VABPathTools.splitPath(path);
 			if (splitted.length == 1) { // A specific AAS was requested
-				String id = VABPathTools.decodePathElement(splitted[0]);
+				String id = decodeBase64ToUtf8String(splitted[0]);
 				IAssetAdministrationShell aas = aggregator.getAAS(new ModelUrn(id));
 				return aas;
 			} else {
-				String id = VABPathTools.decodePathElement(splitted[0]);
+				String id = decodeBase64ToUtf8String(splitted[0]);
 				String restPath = VABPathTools.skipEntries(path, 1);
 				IIdentifier identifier = new Identifier(IdentifierType.CUSTOM, id);
 				return aggregator.getAASProvider(identifier).getValue(restPath);
@@ -122,7 +125,7 @@ public class AASAggregatorProvider implements IModelProvider {
 
 				AssetAdministrationShell aas = createAASFromMap(newValue);
 				// Decode encoded path
-				path = VABPathTools.decodePathElement(path);
+				path = decodeBase64ToUtf8String(path);
 				ModelUrn identifier = new ModelUrn(path);
 
 				if (!aas.getIdentification().getId().equals(path)) {
@@ -136,7 +139,7 @@ public class AASAggregatorProvider implements IModelProvider {
 					aggregator.createAAS(aas);
 				}
 			} else { // Update of contained element
-				String id = VABPathTools.decodePathElement(VABPathTools.getEntry(path, 0));
+				String id = decodeBase64ToUtf8String(VABPathTools.getEntry(path, 0));
 				String restPath = VABPathTools.skipEntries(path, 1);
 				IIdentifier identifier = new Identifier(IdentifierType.CUSTOM, id);
 				aggregator.getAASProvider(identifier).setValue(restPath, newValue);
@@ -153,7 +156,7 @@ public class AASAggregatorProvider implements IModelProvider {
 		if (path.isEmpty()) {
 			throw new MalformedRequestException("Create with empty path is not supported by aggregator");
 		} else {
-			String id = VABPathTools.decodePathElement(VABPathTools.getEntry(path, 0));
+			String id = decodeBase64ToUtf8String(VABPathTools.getEntry(path, 0));
 			String restPath = VABPathTools.skipEntries(path, 1);
 			IIdentifier identifier = new Identifier(IdentifierType.CUSTOM, id);
 			aggregator.getAASProvider(identifier).createValue(restPath, newEntity);
@@ -167,7 +170,7 @@ public class AASAggregatorProvider implements IModelProvider {
 
 		if (!path.isEmpty()) { // Deleting an entry
 			if (!path.contains("/")) {
-				String aasId = VABPathTools.decodePathElement(path);
+				String aasId = decodeBase64ToUtf8String(path);
 				IIdentifier identifier = new ModelUrn(aasId);
 
 				if (aggregator.getAAS(identifier) == null) {
@@ -176,7 +179,7 @@ public class AASAggregatorProvider implements IModelProvider {
 
 				aggregator.deleteAAS(identifier);
 			} else {
-				String id = VABPathTools.decodePathElement(VABPathTools.getEntry(path, 0));
+				String id = decodeBase64ToUtf8String(VABPathTools.getEntry(path, 0));
 				String restPath = VABPathTools.skipEntries(path, 1);
 				IIdentifier identifier = new Identifier(IdentifierType.CUSTOM, id);
 				aggregator.getAASProvider(identifier).deleteValue(restPath);
@@ -194,10 +197,13 @@ public class AASAggregatorProvider implements IModelProvider {
 	@Override
 	public Object invokeOperation(String path, Object... parameter) throws ProviderException {
 		path = stripPrefix(path);
-		String id = VABPathTools.decodePathElement(VABPathTools.getEntry(path, 0));
+		String id = decodeBase64ToUtf8String(VABPathTools.getEntry(path, 0));
 		String restPath = VABPathTools.skipEntries(path, 1);
 		IIdentifier identifier = new Identifier(IdentifierType.CUSTOM, id);
 		return aggregator.getAASProvider(identifier).invokeOperation(restPath, parameter);
 	}
 
+	private String decodeBase64ToUtf8String(String src) {
+		return new String (Base64.getDecoder().decode(src), StandardCharsets.UTF_8);
+	}
 }
