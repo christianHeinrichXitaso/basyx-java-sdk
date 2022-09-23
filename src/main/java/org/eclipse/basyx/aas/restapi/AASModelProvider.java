@@ -1,20 +1,41 @@
 /*******************************************************************************
  * Copyright (C) 2021 the Eclipse BaSyx Authors
  * 
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
  * 
- * SPDX-License-Identifier: EPL-2.0
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * 
+ * SPDX-License-Identifier: MIT
  ******************************************************************************/
 package org.eclipse.basyx.aas.restapi;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.eclipse.basyx.aas.metamodel.map.AssetAdministrationShell;
 import org.eclipse.basyx.aas.restapi.api.IAASAPI;
 import org.eclipse.basyx.aas.restapi.vab.VABAASAPI;
+import org.eclipse.basyx.submodel.metamodel.api.identifier.IdentifierType;
+import org.eclipse.basyx.submodel.metamodel.api.reference.enums.KeyElements;
 import org.eclipse.basyx.submodel.metamodel.map.Submodel;
+import org.eclipse.basyx.submodel.metamodel.map.identifier.Identifier;
+import org.eclipse.basyx.submodel.metamodel.map.qualifier.Identifiable;
+import org.eclipse.basyx.submodel.metamodel.map.reference.Reference;
 import org.eclipse.basyx.vab.exception.provider.MalformedRequestException;
 import org.eclipse.basyx.vab.exception.provider.NotAnInvokableException;
 import org.eclipse.basyx.vab.exception.provider.ProviderException;
@@ -24,7 +45,8 @@ import org.eclipse.basyx.vab.modelprovider.lambda.VABLambdaProvider;
 
 /**
  * Model provider explicitely meant to implement the access to the AAS object.
- * This excludes access to the submodels, that are wrapped into their own provider.
+ * This excludes access to the submodels, that are wrapped into their own
+ * provider.
  * 
  * @author espen
  *
@@ -34,8 +56,8 @@ public class AASModelProvider implements IModelProvider {
 	private IAASAPI aasApi;
 
 	/**
-	 * Constructor based on the model provider containing the AAS model. This is based
-	 * on the default AAS API
+	 * Constructor based on the model provider containing the AAS model. This is
+	 * based on the default AAS API
 	 */
 	public AASModelProvider(IModelProvider modelProvider) {
 		aasApi = new VABAASAPI(modelProvider);
@@ -61,10 +83,56 @@ public class AASModelProvider implements IModelProvider {
 	public Object getValue(String path) throws ProviderException {
 		path = preparePath(path);
 		if (path.isEmpty()) {
-			return aasApi.getAAS();
+			Object value = addAssetReferenceInAAS(aasApi.getAAS());
+			return value;
 		} else {
 			throw new MalformedRequestException("Path " + path + " is not supported");
 		}
+	}
+
+
+	/**
+	 * Add asset reference to asset of the aas
+	 * 
+	 * @param aas
+	 * @return aas with the modified asset
+	 */
+	@SuppressWarnings("unchecked")
+	private AssetAdministrationShell addAssetReferenceInAAS(Object value) {
+		AssetAdministrationShell aas = (AssetAdministrationShell) value;
+		Map<String, Object> asset = (Map<String, Object>) aas.get(AssetAdministrationShell.ASSET);
+		Map<String, Object> assetMap = addAssetReferenceToAsset(asset);
+		aas.put(AssetAdministrationShell.ASSET, assetMap);
+		return aas;
+	}
+
+	/**
+	 * Add asset reference to an asset raw map
+	 * 
+	 * @param asset
+	 * @return modified asset map
+	 */
+	private Map<String, Object> addAssetReferenceToAsset(Map<String, Object> asset) {
+		Reference assetReference = createAssetReference(asset);
+		Map<String, Object> modifiedAsset = new LinkedHashMap<>();
+		modifiedAsset.put(Reference.KEY, assetReference.getKeys());
+		modifiedAsset.putAll(asset);
+		return modifiedAsset;
+	}
+
+	/**
+	 * Create an asset reference from an asset raw map
+	 * 
+	 * @param asset
+	 * @return asset reference
+	 */
+	private Reference createAssetReference(Map<String, Object> asset) {
+		@SuppressWarnings("unchecked")
+		Map<String, Object> assetIdMap = (Map<String, Object>) asset.get(Identifiable.IDENTIFICATION);
+		String idType = (String) assetIdMap.get(Identifier.IDTYPE);
+		String id = (String) assetIdMap.get(Identifier.ID);
+		Identifier assetId = new Identifier(IdentifierType.fromString(idType), id);
+		return new Reference(assetId, KeyElements.ASSET, true);
 	}
 
 	@Override
@@ -102,7 +170,7 @@ public class AASModelProvider implements IModelProvider {
 		path = preparePath(path);
 		String[] splitted = VABPathTools.splitPath(path);
 		if (splitted.length == 3 && splitted[1].equals(AssetAdministrationShell.SUBMODELS)) {
-			String id = splitted[2];
+			String id = VABPathTools.decodePathElement(splitted[2]);
 			aasApi.removeSubmodel(id);
 		} else {
 			throw new MalformedRequestException("Delete on path " + path + " is not supported");
@@ -115,7 +183,8 @@ public class AASModelProvider implements IModelProvider {
 	}
 
 	/**
-	 * Operations that can be invoked are not contained inside of AAS, but inside of submodels
+	 * Operations that can be invoked are not contained inside of AAS, but inside of
+	 * submodels
 	 */
 	@Override
 	public Object invokeOperation(String path, Object... parameter) throws ProviderException {

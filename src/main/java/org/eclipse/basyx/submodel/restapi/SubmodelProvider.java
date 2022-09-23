@@ -1,25 +1,45 @@
 /*******************************************************************************
  * Copyright (C) 2021 the Eclipse BaSyx Authors
  * 
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
  * 
- * SPDX-License-Identifier: EPL-2.0
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * 
+ * SPDX-License-Identifier: MIT
  ******************************************************************************/
 package org.eclipse.basyx.submodel.restapi;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Queue;
 import java.util.regex.Pattern;
 
 import org.eclipse.basyx.submodel.metamodel.api.ISubmodel;
+import org.eclipse.basyx.submodel.metamodel.api.submodelelement.ISubmodelElement;
 import org.eclipse.basyx.submodel.metamodel.facade.SubmodelElementMapCollectionConverter;
+import org.eclipse.basyx.submodel.metamodel.facade.submodelelement.SubmodelElementFacadeFactory;
 import org.eclipse.basyx.submodel.metamodel.map.Submodel;
-import org.eclipse.basyx.submodel.metamodel.map.submodelelement.SubmodelElement;
 import org.eclipse.basyx.submodel.metamodel.map.submodelelement.dataelement.property.Property;
+import org.eclipse.basyx.submodel.metamodel.map.submodelelement.dataelement.property.valuetype.ValueTypeHelper;
 import org.eclipse.basyx.submodel.metamodel.map.submodelelement.operation.Operation;
 import org.eclipse.basyx.submodel.restapi.api.ISubmodelAPI;
 import org.eclipse.basyx.submodel.restapi.vab.VABSubmodelAPI;
@@ -30,8 +50,8 @@ import org.eclipse.basyx.vab.modelprovider.api.IModelProvider;
 import org.eclipse.basyx.vab.modelprovider.lambda.VABLambdaProvider;
 
 /**
- * Additional VAB provider specific for providing submodels together
- * with other SDKs by implementing the submodel API.
+ * Additional VAB provider specific for providing submodels together with other
+ * SDKs by implementing the submodel API.
  *
  * The VAB provides generic models without considering high-level information.
  * For example, Operation submodel elements are realized as a Map. The function
@@ -49,7 +69,7 @@ public class SubmodelProvider implements IModelProvider {
 
 	public static final String VALUES = "values";
 	public static final String SUBMODEL = "submodel";
-	
+
 	ISubmodelAPI submodelAPI;
 
 	/**
@@ -121,29 +141,62 @@ public class SubmodelProvider implements IModelProvider {
 			// Request for submodelElements
 			if (splitted.length == 1 && splitted[0].equals(VALUES)) {
 				// Request for values of all submodelElements
-				return submodelAPI.getSubmodel().getValues();
+				return getSubmodelProviderValues();
 			} else if (splitted.length == 1 && splitted[0].equals(MultiSubmodelElementProvider.ELEMENTS)) {
 				return submodelAPI.getSubmodelElements();
 			} else if (splitted.length >= 2 && isQualifier(splitted[0])) { // Request for element with specific idShort
 				// Remove initial "/submodelElements"
 				path = removeSMElementPrefix(path);
 
-                if (endsWithValue(splitted)) { // Request for the value of an property
-                    String idShortPath = removeValueSuffix(path);
-                    return submodelAPI.getSubmodelElementValue(idShortPath);
-                } else if (isInvocationListPath(splitted)) {
-                    List<String> idShorts = getIdShorts(splitted);
+				if (endsWithValue(splitted)) { // Request for the value of an property
+					String idShortPath = removeValueSuffix(path);
+					return submodelAPI.getSubmodelElementValue(idShortPath);
+				} else if (isInvocationListPath(splitted)) {
+					List<String> idShorts = getIdShorts(splitted);
 
-                    // Remove invocationList/{requestId} from the idShorts
-                    idShorts.remove(idShorts.size() - 1);
-                    idShorts.remove(idShorts.size() - 1);
-                    return submodelAPI.getOperationResult(idShorts.get(0), splitted[splitted.length - 1]);
-                } else {
-                    return submodelAPI.getSubmodelElement(path);
-                }
-            }
-        }
-        throw new MalformedRequestException("Unknown path " + path + " was requested");
+					// Remove invocationList/{requestId} from the idShorts
+					idShorts.remove(idShorts.size() - 1);
+					idShorts.remove(idShorts.size() - 1);
+					return submodelAPI.getOperationResult(idShorts.get(0), splitted[splitted.length - 1]);
+				} else {
+					return submodelAPI.getSubmodelElement(path);
+				}
+			}
+		}
+		throw new MalformedRequestException("Unknown path " + path + " was requested");
+	}
+
+	private Object getSubmodelProviderValues() {
+		Map<String, Object> objectValues = submodelAPI.getSubmodel().getValues();
+		prepareValuesForSerialization(objectValues);
+		return objectValues;
+	}
+
+	private void prepareValuesForSerialization(Map<String, Object> objectValues) {
+		Queue<Map<String, Object>> toBeTransformed = new LinkedList<>();
+		toBeTransformed.add(objectValues);
+		while (!toBeTransformed.isEmpty()) {
+			Map<String, Object> currentMap = toBeTransformed.remove();
+			List<Map<String, Object>> nextMaps = transformMapEntries(currentMap);
+			toBeTransformed.addAll(nextMaps);
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private List<Map<String, Object>> transformMapEntries(Map<String, Object> unprocessedMap) {
+		List<Map<String, Object>> unprocessedEntries = new LinkedList<>();
+		for (Entry<String, Object> mapEntry : unprocessedMap.entrySet()) {
+			Object value = mapEntry.getValue();
+
+			if (value instanceof Map<?, ?>) {
+				unprocessedEntries.add((Map<String, Object>) value);
+				continue;
+			}
+
+			Object fixedValue = ValueTypeHelper.prepareForSerialization(value);
+			unprocessedMap.replace(mapEntry.getKey(), fixedValue);
+		}
+		return unprocessedEntries;
 	}
 
 	private List<String> getIdShorts(String[] splitted) {
@@ -160,25 +213,26 @@ public class SubmodelProvider implements IModelProvider {
 		return idShorts;
 	}
 
-
 	private boolean endsWithValue(String[] splitted) {
 		return splitted[splitted.length - 1].equals(Property.VALUE);
 	}
 
 	/**
-     * Removes a trailing <code>/value</code> from the path if it exists.
-     *
-     * @param path The original path, which might or might not end on {@value Property.VALUE}.
-     * @return The new path
-     */
-    private String removeValueSuffix(String path) {
-        String suffix = "/" + Property.VALUE;
-        if (path.endsWith(suffix)) {
-            path = path.substring(0, path.length() - suffix.length());
-        }
+	 * Removes a trailing <code>/value</code> from the path if it exists.
+	 *
+	 * @param path
+	 *            The original path, which might or might not end on
+	 *            {@value Property.VALUE}.
+	 * @return The new path
+	 */
+	private String removeValueSuffix(String path) {
+		String suffix = "/" + Property.VALUE;
+		if (path.endsWith(suffix)) {
+			path = path.substring(0, path.length() - suffix.length());
+		}
 
-        return path;
-    }
+		return path;
+	}
 
 	private boolean isInvocationListPath(String[] splitted) {
 		return splitted.length > 2 && splitted[splitted.length - 2].equals(OperationProvider.INVOCATION_LIST);
@@ -197,14 +251,13 @@ public class SubmodelProvider implements IModelProvider {
 			if (endsWithValue(splitted)) {
 				submodelAPI.updateSubmodelElement(idshortPath, newValue);
 			} else {
-				
-				SubmodelElement element = SubmodelElement.createAsFacade((Map<String, Object>) newValue);
-				
-				if(!path.endsWith(element.getIdShort())) {
-					throw new MalformedRequestException("The idShort of given Element '"
-							+ element.getIdShort() + "' does not match the ending of the given path '" + path + "'");
+
+				ISubmodelElement element = SubmodelElementFacadeFactory.createSubmodelElement((Map<String, Object>) newValue);
+
+				if (!path.endsWith(element.getIdShort())) {
+					throw new MalformedRequestException("The idShort of given Element '" + element.getIdShort() + "' does not match the ending of the given path '" + path + "'");
 				}
-				
+
 				submodelAPI.addSubmodelElement(idshortPath, element);
 			}
 		}
@@ -246,30 +299,50 @@ public class SubmodelProvider implements IModelProvider {
 
 	@Override
 	public Object invokeOperation(String path, Object... parameters) throws ProviderException {
-		path = removeSubmodelPrefix(path);
-		if (path.isEmpty()) {
+		String pathWithoutSubmodelPrefix = removeSubmodelPrefix(path);
+		if (pathWithoutSubmodelPrefix.isEmpty()) {
 			throw new MalformedRequestException("Given path must not be empty");
-		} else {
-			if (VABPathTools.isOperationInvokationPath(path)) {
-				if(path.endsWith(OperationProvider.ASYNC)) {
-					path = removeSMElementPrefix(path);
-					path = path.replaceFirst(Pattern.quote(Operation.INVOKE + OperationProvider.ASYNC), "");
-					return submodelAPI.invokeAsync(path, parameters);
-				} else {
-					path = removeSMElementPrefix(path);
-					return submodelAPI.invokeOperation(path, parameters);
-				}
-			} else {
-				throw new MalformedRequestException("Given path '" + path + "' does not end in /" + Operation.INVOKE);
-			}
 		}
+
+		if (!VABPathTools.isOperationInvokationPath(pathWithoutSubmodelPrefix)) {
+			throw new MalformedRequestException("Given path '" + path + "' does not end in /" + Operation.INVOKE);
+		}
+
+		String pathWithoutSMElementPrefix = removeSMElementPrefix(pathWithoutSubmodelPrefix);
+
+		if (isAsyncInvokePath(pathWithoutSMElementPrefix)) {
+			return invokeAsync(pathWithoutSMElementPrefix, parameters);
+		} else {
+			return invokeSync(pathWithoutSMElementPrefix, parameters);
+		}
+
+	}
+
+	private Object invokeSync(String path, Object... parameters) {
+		String pathWithoutInvoke = path.substring(0, path.lastIndexOf(Operation.INVOKE));
+		String strippedPathWithoutInvoke = VABPathTools.stripSlashes(pathWithoutInvoke);
+		return submodelAPI.invokeOperation(strippedPathWithoutInvoke, parameters);
+	}
+
+	private Object invokeAsync(String path, Object... parameters) {
+		String pathWithoutAsyncInvoke = path.replaceFirst(Pattern.quote(Operation.INVOKE + OperationProvider.ASYNC), "");
+		String strippedPathWithoutAsyncInvoke = VABPathTools.stripSlashes(pathWithoutAsyncInvoke);
+		return submodelAPI.invokeAsync(strippedPathWithoutAsyncInvoke, parameters);
+	}
+
+	private boolean isAsyncInvokePath(String path) {
+		return path.endsWith(OperationProvider.ASYNC);
+	}
+
+	public ISubmodelAPI getAPI() {
+		return this.submodelAPI;
 	}
 
 	protected void setAPI(ISubmodelAPI api) {
 		this.submodelAPI = api;
 	}
-	
+
 	private String removeSMElementPrefix(String path) {
-		return  path.replaceFirst(MultiSubmodelElementProvider.ELEMENTS, "");
+		return path.replaceFirst(MultiSubmodelElementProvider.ELEMENTS, "");
 	}
 }

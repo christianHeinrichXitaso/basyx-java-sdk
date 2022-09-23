@@ -1,11 +1,26 @@
 /*******************************************************************************
  * Copyright (C) 2021 the Eclipse BaSyx Authors
  * 
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
  * 
- * SPDX-License-Identifier: EPL-2.0
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * 
+ * SPDX-License-Identifier: MIT
  ******************************************************************************/
 package org.eclipse.basyx.submodel.restapi;
 
@@ -32,36 +47,54 @@ public class PropertyProvider implements IModelProvider {
 		this.proxy = proxy;
 	}
 
-	@SuppressWarnings("unchecked")
 	@Override
 	public Object getValue(String path) throws ProviderException {
 		path = VABPathTools.stripSlashes(path);
 
-		// Handle "/value" path
-		if (path.equals(Property.VALUE)) {
-			// return value
-			Map<String, Object> p = (Map<String, Object>) proxy.getValue("");
-			return p.get(Property.VALUE);
+		if (isValuePath(path)) {
+			return ValueTypeHelper.prepareForSerialization(getProperty().getValue());
 
 		} else if (path.isEmpty()) {
-			// Handle "" path by returning complete property
-			return proxy.getValue("");
+			return getProperty();
 		} else {
 			throw new MalformedRequestException("Unknown path: " + path);
 		}
 	}
 
+	@SuppressWarnings("unchecked")
+	private Property getProperty() {
+		return Property.createAsFacade((Map<String, Object>) proxy.getValue(""));
+	}
+
 	@Override
 	public void setValue(String path, Object newValue) throws ProviderException {
 		path = VABPathTools.stripSlashes(path);
-		// Only handle "/value" paths
-		if (path.equals(Property.VALUE)) {
-			// Set value and type
-			proxy.setValue(Property.VALUE, newValue);
-			proxy.setValue(Property.VALUETYPE, ValueTypeHelper.getType(newValue).toString());
-		} else {
+
+		if (!isValuePath(path)) {
 			throw new MalformedRequestException("Given Set path '" + path + "' does not end in /value");
 		}
+
+		updatePropertyValue(newValue);
+	}
+
+	private boolean isValuePath(String path) {
+		return path.equals(Property.VALUE);
+	}
+
+	private void updatePropertyValue(Object newValue) {
+		proxy.setValue(Property.VALUE, newValue);
+
+		if (isValueTypeSet()) return;
+
+		updateValueType(newValue);
+	}
+
+	private void updateValueType(Object newValue) {
+		proxy.setValue(Property.VALUETYPE, ValueTypeHelper.getType(newValue).toString());
+	}
+
+	private boolean isValueTypeSet() {
+		return proxy.getValue(Property.VALUETYPE) != "";
 	}
 
 	@Override

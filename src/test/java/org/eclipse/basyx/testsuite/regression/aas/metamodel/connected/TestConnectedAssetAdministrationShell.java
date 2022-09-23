@@ -1,16 +1,36 @@
 /*******************************************************************************
  * Copyright (C) 2021 the Eclipse BaSyx Authors
  * 
- * This program and the accompanying materials are made
- * available under the terms of the Eclipse Public License 2.0
- * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
  * 
- * SPDX-License-Identifier: EPL-2.0
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * 
+ * SPDX-License-Identifier: MIT
  ******************************************************************************/
 package org.eclipse.basyx.testsuite.regression.aas.metamodel.connected;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.eclipse.basyx.aas.manager.ConnectedAssetAdministrationShellManager;
 import org.eclipse.basyx.aas.metamodel.api.IAssetAdministrationShell;
@@ -18,12 +38,15 @@ import org.eclipse.basyx.aas.metamodel.connected.ConnectedAssetAdministrationShe
 import org.eclipse.basyx.aas.metamodel.map.AssetAdministrationShell;
 import org.eclipse.basyx.aas.metamodel.map.descriptor.AASDescriptor;
 import org.eclipse.basyx.aas.metamodel.map.descriptor.SubmodelDescriptor;
+import org.eclipse.basyx.aas.metamodel.map.parts.Asset;
 import org.eclipse.basyx.aas.registration.api.IAASRegistry;
 import org.eclipse.basyx.aas.registration.memory.InMemoryRegistry;
 import org.eclipse.basyx.aas.restapi.AASModelProvider;
 import org.eclipse.basyx.aas.restapi.MultiSubmodelProvider;
 import org.eclipse.basyx.submodel.metamodel.api.ISubmodel;
 import org.eclipse.basyx.submodel.metamodel.map.Submodel;
+import org.eclipse.basyx.submodel.metamodel.map.reference.Key;
+import org.eclipse.basyx.submodel.metamodel.map.reference.Reference;
 import org.eclipse.basyx.submodel.restapi.SubmodelProvider;
 import org.eclipse.basyx.testsuite.regression.aas.metamodel.AssetAdministrationShellSuite;
 import org.eclipse.basyx.testsuite.regression.vab.gateway.ConnectorProviderStub;
@@ -69,8 +92,7 @@ public class TestConnectedAssetAdministrationShell extends AssetAdministrationSh
 		connectorProvider.addMapping("", provider);
 
 		// Create connection manager using the dummy
-		ConnectedAssetAdministrationShellManager manager = new ConnectedAssetAdministrationShellManager(registry,
-				connectorProvider);
+		ConnectedAssetAdministrationShellManager manager = new ConnectedAssetAdministrationShellManager(registry, connectorProvider);
 
 		// Create ConnectedAssetAdministrationShell
 		connectedAAS = manager.retrieveAAS(AASID);
@@ -98,6 +120,28 @@ public class TestConnectedAssetAdministrationShell extends AssetAdministrationSh
 		AASModelProvider aasProvider = new AASModelProvider(retrieveBaselineShell());
 		ConnectedAssetAdministrationShell localCAAS = new ConnectedAssetAdministrationShell(new VABElementProxy("", aasProvider));
 
-		assertEquals(retrieveBaselineShell(), localCAAS.getLocalCopy());
+		AssetAdministrationShell originalAAS = addAssetReferenceToAAS(retrieveBaselineShell());
+		assertEquals(originalAAS, localCAAS.getLocalCopy());
+	}
+
+	@SuppressWarnings("unchecked")
+	@Test
+	public void testGetAssetReferenceFromAASJSON() {
+		Map<String, Object> assetMap = (Map<String, Object>) retrieveShell().getAsset();
+		assertTrue(assetMap.containsKey(Reference.KEY));
+		List<Object> assetKeys = (List<Object>) assetMap.get(Reference.KEY);
+		Map<String, Object> keyMap = (Map<String, Object>) assetKeys.get(0);
+		assertEquals(Asset.MODELTYPE, keyMap.get(Key.TYPE));
+		String expectedAssetId = retrieveBaselineShell().getAsset().getIdentification().getId();
+		assertEquals(expectedAssetId, keyMap.get(Key.VALUE));
+	}
+
+	private AssetAdministrationShell addAssetReferenceToAAS(AssetAdministrationShell aas) {
+		Asset asset = (Asset) aas.getAsset();
+		Map<String, Object> modifiedAsset = new LinkedHashMap<>();
+		modifiedAsset.put(Reference.KEY, asset.getReference().getKeys());
+		modifiedAsset.putAll(asset);
+		aas.setAsset(Asset.createAsFacade(modifiedAsset));
+		return aas;
 	}
 }
